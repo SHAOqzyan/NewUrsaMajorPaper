@@ -2,9 +2,11 @@
 #this script is used to split the process of Ursa Major with some fundamental operations of FITS
 
 from myPYTHON import *
+#import table
 
+from astropy.table import Table
 #print dir(plt)
-
+from matplotlib.patches import Polygon
 class UrsaMajor:
 
 	"""
@@ -13,6 +15,10 @@ class UrsaMajor:
 	#initialize
 
 	originalFITSPath="./OriginalFITS/"
+
+	FITS12COName="myCut12CO.fits" 
+	FITS13COName="myCut13CO.fits" 
+	FITSC18OName="myCutC18O.fits" 
 
 	FITS12CO=originalFITSPath+"myCut12CO.fits" 
 	FITS13CO=originalFITSPath+"myCut13CO.fits" 
@@ -34,8 +40,7 @@ class UrsaMajor:
 	HIFITS=originalFITSPath+"HICube.fits"
 	IRASFITS=originalFITSPath+"IRAS100.fits"
 
-
-
+	distance=110 #pc
 	Vrange=[-6,9] #mark the range for moment km/s
 
 
@@ -65,6 +70,67 @@ class UrsaMajor:
 		self.drawRGT(self.dataC18O,self.headerC18O,regrid=regrid)
 
 
+
+
+
+	def addShadow(self,s1,ax1,redVs,colorCode):
+		"""
+		What the hell is zeroPosition
+		"""
+		xdata=s1.get_xdata()
+		ydata=s1.get_ydata()
+		
+		a=float(redVs[0]);b=float(redVs[1])
+		
+		indexa=0;indexb=0
+		
+		for x in xdata:
+			if x<a:
+				indexa=indexa+1
+			if x<b:
+				indexb=indexb+1
+			if x>b:
+				break
+				
+		iy=ydata[indexa:indexb+1]
+		ix=xdata[indexa:indexb+1]
+			
+		verts=[(xdata[indexa],0)]+list(zip(ix,iy))+[(xdata[indexb],0)]
+		
+		
+		
+		#print verts
+		poly=Polygon(verts,facecolor=colorCode,edgecolor='0.75',linewidth=0.2)
+		ax1.add_patch(poly)
+		
+
+
+
+	def getSpectraByIndex(self,data,dataHeader,indexX,indexY):
+
+		"""
+		This function is used to get a voxel value from a data cube
+		
+		v, km/s
+		"""
+		wcs = WCS(dataHeader)
+ 
+ 
+		
+		##it is possible that the yindex,and xindex can exceed the boundary of spectrum
+		
+ 
+ 
+		spectral=data[:, indexY,indexX]
+		##just for test
+		#print  w.all_world2pix(0, 0, 0,0)
+		#print data.shape[0]
+		velocityIndex= range(data.shape[0])
+		
+		velocities=wcs.all_pix2world(0, 0,velocityIndex,0)[2]/1000.
+ 
+		# 
+		return spectral,velocities
 	def getAverageSpec(self,fitsFile,path="./"):
 		"""
 		This function is dedicated to get the average spectrum for the CO lines
@@ -77,7 +143,7 @@ class UrsaMajor:
 		#read the file
 		cores=self.getCoreTable()
 
-		COdata,COheader=self.readFITS(path+fitsFile)
+		COdata,COheader=self.doFITS.readFITS(path+fitsFile)
 
 		#print len(cores)
 		avgSpec=0
@@ -115,13 +181,13 @@ class UrsaMajor:
 		"""
 
 
-		duchampFile="/home/qzyan/HLM/FITS/Duchamp/duchamp-Results.txt"
+		duchampFile="/Users/qzyan/WORK/NewUrsaMajorPaper/Duchamp/duchamp-Results.txt"
 		
 		colNamesStr=" ObjID            Name      X      Y     Z       GLON      GLAT       GLON_deg       GLAT_deg      VRAD      MAJ      MIN     PA   w_GLON   w_GLAT     w_50     w_20   w_VRAD        F_int   F_peak   X2  Y1  Y2  Z1  Z2 Nvoxel Nchan Nspatpix Flag   X_av   Y_av  Z_av X_cent Y_cent Z_cent X_peak Y_peak Z_peak"
 		
 		from astropy.io import ascii
 		
-		tempFile="/home/qzyan/HLM/FITS/Duchamp/duchamp-Results.dat"
+		tempFile="/Users/qzyan/WORK/NewUrsaMajorPaper/Duchamp/duchamp-Results.dat"
 		##This step is to filter the lines Commented.
 		#
 		
@@ -187,10 +253,10 @@ class UrsaMajor:
 			l,b=eachCore["GLON_deg"],eachCore[ "GLAT_deg"]
 			dL=2.5/60.
 			#check if with in 2 arcmin, nan value exist
-			value1=self.getVoxValue(CO13data,CO13Header,l+dL,b,0)
-			value2=self.getVoxValue(CO13data,CO13Header,l-dL,b,0)
-			value3=self.getVoxValue(CO13data,CO13Header,l,b-dL,0)
-			value4=self.getVoxValue(CO13data,CO13Header,l,b+dL,0)
+			value1=self.doFITS.getVoxValue(CO13data,CO13Header,[l+dL,b,0])
+			value2=self.doFITS.getVoxValue(CO13data,CO13Header,[l-dL,b,0])
+			value3=self.doFITS.getVoxValue(CO13data,CO13Header,[l,b-dL,0])
+			value4=self.doFITS.getVoxValue(CO13data,CO13Header,[l,b+dL,0])
 			
  
 			
@@ -252,9 +318,15 @@ class UrsaMajor:
 		
 		img = np.zeros((bData.shape[0], bData.shape[1], 3), dtype=float)
 
-		img[:,:,0]=img_scale.sqrt(rData, scale_min=0.1, scale_max=8)
-		img[:,:,1]= img_scale.sqrt(gData, scale_min=0.1, scale_max=8)
-		img[:,:,2]=img_scale.sqrt(bData, scale_min=0.1, scale_max=8)
+		scales=[0.1,8]
+
+		if "13" in fitsFile:
+			scales=[0.01,2]
+
+
+		img[:,:,0]=img_scale.sqrt(rData, scale_min=scales[0],scale_max=scales[1])
+		img[:,:,1]= img_scale.sqrt(gData,scale_min=scales[0],scale_max=scales[1])
+		img[:,:,2]=img_scale.sqrt(bData, scale_min=scales[0],scale_max=scales[1])
 
 
 
@@ -276,8 +348,8 @@ class UrsaMajor:
 		#axins=plt.axes([0.3,0.17,0.2 ,0.18]) 
 		axins.set_axis_bgcolor('lightcyan')
 		
-		spectral12,vs12=self.getAverageSpec( "CO12.fits",path="./FITS/") 
-		spectral13,vs13=self.getAverageSpec( "CO13.fits",path="./FITS/") 
+		spectral12,vs12=self.getAverageSpec(self.FITS12COName,path=self.originalFITSPath)
+		spectral13,vs13=self.getAverageSpec(self.FITS13COName,path=self.originalFITSPath)
 
 
 
@@ -344,11 +416,11 @@ class UrsaMajor:
 		#plt.show()
 		
 
-		if "12" in fileFits:
+		if "12" in fitsFile:
 			saveName="RGBInt12CO.pdf"
-		if "13" in fileFits:
+		if "13" in fitsFile:
 			saveName="RGBInt13CO.pdf"
-		if "18" in fileFits:
+		if "18" in fitsFile:
 			saveName="RGBIntC18O.pdf"
 
 		plt.savefig(saveName, bbox_inches="tight")
@@ -511,6 +583,7 @@ if 0: #drawRGB of CO IRAS HI
 if 1: #draw 12CO three false color 
 	doHL.drawCOInt("./OriginalFITS/myCut12CO.fits")
 
+	doHL.drawCOInt("./OriginalFITS/myCut13CO.fits")
 
 if 0:
 	pass
