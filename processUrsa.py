@@ -7,6 +7,8 @@ from myPYTHON import *
 from astropy.table import Table
 #print dir(plt)
 from matplotlib.patches import Polygon
+import numpy.ma as ma
+
 class UrsaMajor:
 
 	"""
@@ -23,8 +25,9 @@ class UrsaMajor:
 	FITS12CO=originalFITSPath+"myCut12CO.fits" 
 	FITS13CO=originalFITSPath+"myCut13CO.fits" 
 	FITSC18O=originalFITSPath+"myCutC18O.fits" 
+	duchampFile="/Users/qzyan/WORK/NewUrsaMajorPaper/Duchamp/duchamp-Results.txt"
 
-
+	tempFile="/Users/qzyan/WORK/NewUrsaMajorPaper/Duchamp/duchamp-Results.dat"
 	middleOutPutPath="./middleFITS/"
 
 	tempOutPutPath="./tempFITS"
@@ -42,7 +45,8 @@ class UrsaMajor:
 
 	distance=110 #pc
 	Vrange=[-6,9] #mark the range for moment km/s
-
+	
+	indexRange=[]
 
 
 	def __init__(self,read12CO=True,read13CO=True,readC18O=False):
@@ -52,13 +56,48 @@ class UrsaMajor:
 				
 		self.doFITS=myFITS()
 		if read12CO:
-			data12CO,header12CO=self.doFITS.readFITS(self.FITS12CO)
+			self.data12CO,self.header12CO=self.doFITS.readFITS(self.FITS12CO)
 		if read13CO:
-			data13CO,header13CO=self.doFITS.readFITS(self.FITS13CO)
+			self.data13CO,self.header13CO=self.doFITS.readFITS(self.FITS13CO)
 		if readC18O:
-			dataC18O,headerC18O=self.doFITS.readFITS(self.FITSC18O)
+			self.dataC18O,self.headerC18O=self.doFITS.readFITS(self.FITSC18O)
 		#myFITS.getSurvey("IRIS 100",LB=[144.92432,38.395361],Pixels=800)
 		#myFITS.getSurvey("IRIS 60",LB=[144.92432,38.395361],Pixels=800)
+
+
+		#calculate the index range of  index according to the range of velocity
+		self.indexRange=self.getIndexRange()
+
+
+
+	def getIndexRange(self):
+		"""
+		This function is used to calculate the index range of velocities contains 
+		ginales
+
+		based on the FITS of 12CO, essentially the FITS 13CO and C18O are similar
+		"""
+
+		#calculate according to the header of 12CO FITS
+
+		wcs12CO=WCS(self.header12CO)
+
+		begin, end=self.Vrange#/kms
+
+		beginIndex=wcs12CO.all_world2pix(0, 0,begin*1000.0,0)[2]
+		endIndex=wcs12CO.all_world2pix(0, 0,end*1000.,0)[2]
+
+		
+		return self.doFITS.roundToInt([beginIndex,endIndex])
+		
+
+
+		
+
+
+
+
+
 
 	def draw12CORGB(self,regrid=False):
 		self.drawRGT(self.data12CO,self.header12CO,regrid=regrid)
@@ -70,7 +109,309 @@ class UrsaMajor:
 		self.drawRGT(self.dataC18O,self.headerC18O,regrid=regrid)
 
 
+	def drawCoreMass(self):
+		"""
+		This function is used to draw the distribution of core mass (integration of brightness temperature)
+		
+		"""
+		
+		duchampFile=self.duchampFile
+		
+		colNamesStr=" ObjID            Name      X      Y     Z       GLON      GLAT       GLON_deg       GLAT_deg      VRAD      MAJ      MIN     PA   w_GLON   w_GLAT     w_50     w_20   w_VRAD        F_int   F_peak   X2  Y1  Y2  Z1  Z2 Nvoxel Nchan Nspatpix Flag   X_av   Y_av  Z_av X_cent Y_cent Z_cent X_peak Y_peak Z_peak"
+		
+		from astropy.io import ascii
+		
+		tempFile=self.tempFile
+		##This step is to filter the lines Commented.
+		#
+		#CO13_C.fits
+		
+		#CO13FITS="/home/qzyan/HLM/FITS/Duchamp/finalALL_C.fits"
+		
+		#CO13data,CO13Header=self.readFITS(CO13CoreFILE)
 
+		CO13data,CO13Header=self.data13CO,self.header13CO
+
+		
+		#header=fits.getheader(CO13FITS)
+		header=CO13Header
+		
+		WCS(header)
+		
+		
+		
+ 
+		
+		#print WCS(CO13Header)
+		
+		data_rows=[]
+		
+		
+		for line in open(duchampFile):
+			if line.startswith('#'):
+				
+			  continue
+			 
+			if line.strip()=="":
+				continue
+ 
+			data_rows.append(line.split())
+ 
+		
+		colNames=colNamesStr.split()
+		
+ 
+		
+		dtypes=[]
+		#print 
+		for eachValue in data_rows[0]:
+			
+			try :
+				float(eachValue)
+				dtypes.append("f8") 
+			except:
+				dtypes.append('S50')
+			
+			
+			#print eachValue, eachValue.replace('.','',1).isdigit()
+		
+ 
+		rawCores=Table(rows=data_rows,names=colNames,dtype=dtypes)
+ 
+		
+		
+		myCores=rawCores[0:1]
+	
+		myCores.remove_row(0)
+		
+		indexCore=1
+		
+		for eachCore in rawCores:
+			
+			#filter the cores, eliminate the fake cores (edge fake)
+			l,b=eachCore["GLON_deg"],eachCore[ "GLAT_deg"]
+			dL=2.5/60.
+			#check if with in 2 arcmin, nan value exist
+			value1=self.doFITS.getVoxValue(CO13data,CO13Header,[l+dL,b,0])
+			value2=self.doFITS.getVoxValue(CO13data,CO13Header,[l-dL,b,0])
+			value3=self.doFITS.getVoxValue(CO13data,CO13Header,[l,b-dL,0])
+			value4=self.doFITS.getVoxValue(CO13data,CO13Header,[l,b+dL,0])
+			
+ 
+			
+			if  np.isnan(value1) or np.isnan(value2)  or np.isnan(value3)  or np.isnan(value2):
+				#print indexCore
+				
+				indexCore+=1
+			#print value1,value2,value3,value4
+				continue
+			
+			#elset 
+			myCores.add_row(eachCore)
+			indexCore+=1
+			
+		massList= myCores["F_int"]
+		 
+		j2 = massList/1000 
+		#re
+ 
+		print min(j2)
+		print max(j2),"--------------------------------"
+		print len(myCores),"Total number of Cores"
+		if 0:# plot core mass function
+			fig, ax = plt.subplots()
+			n, bins, patches = plt.hist(j2,  bins=np.logspace(0,3,8), normed=0, facecolor='green', alpha=0.75)
+			#n, bins, patches = plt.hist(j2, 100, normed=0, facecolor='green', alpha=0.75)
+			print bins
+			#ax.plot(massList)
+			#print avgSp12
+			#ax.plot(massList)
+			#print bins
+			ax.set_yscale('log')
+			ax.set_xscale('log')
+			
+			plt.show()
+			
+			
+			
+		if 1:# plot real log
+			fig, ax = plt.subplots()
+			#n, bins, patches = plt.hist(j2,  bins=np.logspace(0,3,8), normed=0, facecolor='green', alpha=0.75)
+			#n, bins, patches = plt.hist(j2, 100, normed=0, facecolor='green', alpha=0.75)
+			numbersRaw,edges=np.histogram(j2,bins=np.logspace(0,3,9))
+			
+			edges=np.log10(edges)
+			numbers=np.log10(numbersRaw)
+			
+			#print numbers,
+			#print edges
+			
+			centerS=(edges[1:]+edges[:-1])/2.
+				
+			#print  centerS
+			#print  numbers 
+			
+			logData=np.log10(j2)
+			numbers2,edges2=np.histogram(logData,bins=np.linspace(0,3,9))
+			centerS2=(edges2[1:]+edges2[:-1])/2.
+			
+			print numbers2
+			
+			YS= numbers[2:]
+			XS= centerS[2:]
+				
+			fitting= np.polyfit(XS,YS,1)
+			from scipy import stats
+				
+			slope, intercept, r_value, p_value, std_err = stats.linregress(XS,YS)
+			
+			print slope,intercept,std_err
+			
+			
+			print logData[(edges2[0] <= logData) & (logData < edges2[1])] 
+			#print logData[(edges2[1] <= logData) & (logData < edges2[2])].size
+			
+			ax.plot(centerS,numbers)
+			
+			p=np.poly1d(fitting)
+			
+			
+			drawXS=XS.copy()
+			drawYS=p(drawXS)
+		 
+			ax.plot(centerS,numbers,"b^",markersize=8,label="logarithm bin") 
+
+			ax.plot(drawXS,drawYS,color="red",label=r"$ \alpha= {:.2f}\pm{:.2f}$".format(-slope+1,std_err))
+			ax.set_ylim([-0.2,1.8])
+			#draw fitting line
+			
+			ax.set_xlabel("$\log(M)$ (arbitrary unit)")
+			ax.set_ylabel(r"$\log\left(\frac{dN}{d\log\left(M\right)}\right)$")
+
+			ax.legend()
+			#ax.plot(bins[0:-1],j2)
+			#ax.plot(massList)
+			#print avgSp12
+			#ax.plot(massList)
+			#print bins
+			#ax.set_yscale('log')
+			#ax.set_xscale('log')
+			plt.savefig('CMF.eps', bbox_inches="tight")
+
+			#plt.show()
+			
+			
+			
+			
+
+		if 1: # draw the distribution of Cores
+			plt.clf()
+			fig, ax = plt.subplots()
+			
+			#n, bins, patches = plt.hist(j2, 30, normed=0, facecolor='green', alpha=0.75)
+			#ax.plot(massList)
+			#print avgSp12
+			#ax.plot(massList)
+			#ax.set_yscale('log')
+			#ax.set_xscale('log')
+			
+			#COint.fits
+			
+			
+			#CO13IntData,CO13IntHeader=self.doFITS.readFITS("./FITS/COint.fits")
+			#get the data and Header by Moment
+			
+			CO13IntData,CO13IntHeader=self.doFITS.momentFITS(self.FITS13CO,self.Vrange,0,"./middleFITS/13COInt.fits")
+
+
+			wcs = WCS(CO13IntHeader)
+
+			ax=pywcsgrid2.subplot(111,header=wcs)
+			ax.imshow(CO13IntData[0],origin="lower",vmin=0,vmax=3,cmap="bone")
+			
+			
+			for eachCore in myCores:
+				xPeak,yPeak,zPeak=eachCore["X_peak"],eachCore[ "Y_peak"],eachCore["Z_peak"]
+				#convert xPeak,yPeak to l,b
+				
+				world=wcs.wcs_pix2world(int(xPeak),int(yPeak),int(zPeak),0)
+				
+				l,b=world[0],world[1]
+				ax["gal"].plot(l,b,"+",markersize=3.5,color='r',alpha=0.1,markeredgecolor="red",markerfacecolor="None",markeredgewidth=0.2)
+				
+				#draw Peak position
+				
+				#ax.plot(int(xPeak),int(yPeak),"+",markersize=3.5,color='r',alpha=0.9,markeredgecolor="red",markerfacecolor="None",markeredgewidth=0.14)
+
+			# HI, pix resolution 
+			HIPix=0.5 # arcmin
+			resoltion=np.radians(HIPix/60)
+	 
+			#what is the angle of 1 pc
+	 
+			angle1PC=2*np.arctan(0.5/self.distance)
+			size1PC=angle1PC/resoltion
+			rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+				
+			plt.rcParams.update({'font.size': 10})
+			ax.add_size_bar(size1PC, # 30' in in pixel
+									r"1 pc",
+									loc=1,color='paleturquoise' )
+					#ax["gal"].plot((l,b),0.1,color='r')
+				
+				#print l,b
+			plt.savefig('CoreDistrition.eps', bbox_inches="tight")
+
+			#plt.show()
+
+
+
+	def calRMS(self,spectra):
+		"""
+		Calculate the RMS for the spectra
+		"""
+		return  sqrt(mean(square(spectra)))
+
+
+	def maskSignal(self,spectra,header):
+		"""
+		Calculate the RMS for the spectra
+		"""
+		# 0-90 180-250
+		#mask the siginal according to the position of signal range
+
+		#	
+		a=spectra[:self.indexRange[0]]
+		b=spectra[self.indexRange[1]:]
+		
+		return  np.concatenate([a,b])
+
+
+	def getRMS(self,fitsFile):
+		
+		"""
+		This function is used to calculate the RMS fo 12CO and 13CO
+		
+		"""
+		COData,COHeader=self.doFITS.readFITS(fitsFile)
+		
+		#calculate the RMS of each spectrum # 
+		
+		#producing the rms for the CO13Data
+		
+		#int13Data,int13Header = doHL.momentFITS("CO13.fits",[-6,8],0,"./FITS/","COint.fits")
+		
+		
+		
+		
+		nosiseCube=np.apply_along_axis(self.maskSignal,0,COData,COHeader)
+		rmsImag=np.apply_along_axis( self.calRMS,0,nosiseCube)
+ 
+		
+		rmsRMS=self.calRMS(ma.masked_invalid(rmsImag))
+		
+		return rmsRMS
+		 
 
 
 	def addShadow(self,s1,ax1,redVs,colorCode):
@@ -563,7 +904,7 @@ class UrsaMajor:
 
 
 
-doHL=UrsaMajor()
+doHL=UrsaMajor(read12CO=True)
 
 
 if 0: #Examine a possibile outflow
@@ -580,7 +921,7 @@ if 0: #drawRGB of CO IRAS HI
 	doHL.drawRGB("./FITS/CO12_C.fits",regrid=False)
 
 
-if 1: #draw 12CO three false color 
+if 0: #draw 12CO three false color 
 	doHL.drawCOInt("./OriginalFITS/myCut12CO.fits")
 
 	doHL.drawCOInt("./OriginalFITS/myCut13CO.fits")
@@ -646,7 +987,7 @@ if 0: # testing the Cores, mark the cores on 13CO map, calculate the mass for ea
 	#createClean13COMoment
 
 
-if 0: #check the mass distribution of cores identified by Duchamp (13CO)
+if 1: #check the mass distribution of cores identified by Duchamp (13CO)
 		
 	"""
 	333
@@ -668,8 +1009,9 @@ if 0: #check the mass distribution of cores identified by Duchamp (13CO)
 	
 	
 if 0: #check the RMS of 13CO
+
 	pass
-	sigma13=doHL.getRMS("./FITS/CO13.fits")
+	sigma13=doHL.getRMS("./OriginalFITS/myCut12CO.fits")
 	print "the RMS of 13CO is ",sigma13
 	
 	
